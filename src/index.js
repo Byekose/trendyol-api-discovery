@@ -62,6 +62,16 @@ app.get('/report', guard, async (_req, res) => {
   }
 });
 
+app.get('/analysis', guard, async (_req, res) => {
+  try {
+    const html = await require('./analysis').buildAnalysis();
+    res.type('html').send(html);
+  } catch (err) {
+    console.error('[analysis]', err);
+    res.status(500).send('Analiz üretilemedi: ' + err.message);
+  }
+});
+
 app.get('/', (_req, res) => res.redirect('/report'));
 
 // ── Başlatma ──────────────────────────────────────────────────────────

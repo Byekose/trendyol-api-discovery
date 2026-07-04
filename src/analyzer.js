@@ -2,7 +2,18 @@
 
 const { pool } = require('./db');
 
-const SENSITIVE = /name|email|address|phone|tckn|taxnumber|gsm|identity/i;
+// Hedefli maskeleme: müşteri kimliği taşıyan alanlar. 'name' substring'i
+// kullanılmaz — productName / status.name / cargoProviderName gibi masum
+// alanların maskelenmesini önler (v1.1 düzeltmesi).
+const SENSITIVE_EXACT = /^(customerFirstName|customerLastName|customerEmail|email|fullName|firstName|lastName|phone|gsm|gsmNumber|identityNumber|tckn|taxNumber|company|customerNote|note)$/i;
+// *Address* objelerinin altında ek olarak maskelenecek alanlar (konum dahil)
+const SENSITIVE_IN_ADDRESS = /^(fullAddress|address1|address2|apartmentNumber|doorNumber|floor|neighborhood|latitude|longitude|taxOffice|postalCode|city|cityCode|district|districtId|countyName)$/i;
+
+function isSensitive(key, parentPath) {
+  if (SENSITIVE_EXACT.test(key)) return true;
+  if (/address/i.test(parentPath || '') && SENSITIVE_IN_ADDRESS.test(key)) return true;
+  return false;
+}
 const MAX_DISTINCT = 40;       // enum adayı takibi için tavan
 const ENUM_THRESHOLD = 25;     // ≤ 25 distinct string → enum kabul
 const MAX_EXAMPLE_LEN = 80;
@@ -56,7 +67,7 @@ function walk(record, prefix, stats, parentVisits) {
     }
 
     if (t === 'string' || t === 'number' || t === 'boolean') {
-      const sensitive = SENSITIVE.test(key);
+      const sensitive = isSensitive(key, prefix);
       if (s.example === null) {
         s.example = sensitive ? mask(value) : String(value).slice(0, MAX_EXAMPLE_LEN);
       }
