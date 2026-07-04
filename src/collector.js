@@ -31,7 +31,7 @@ async function saveResponse(runId, key, result) {
   await pool.query(
     `INSERT INTO raw_responses (run_id, endpoint_key, request_url, http_status, body, error_text)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [runId, key, result.url, result.status, result.body, result.errorText]
+    [runId, key, result.url, result.status, result.body === null ? null : JSON.stringify(result.body), result.errorText]
   );
 }
 
