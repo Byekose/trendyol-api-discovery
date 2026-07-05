@@ -151,6 +151,48 @@ async function buildAnalysis() {
     cur.debt += s.debt || 0;
   }
 
+  // ── 6. Komisyon: indirim ÖNCESİ mi SONRASI fiyattan? ───────────────
+  // İndirimli sipariş satırlarında iki hipotez test edilir:
+  //   H1 (liste):   commissionAmount ≈ rate% × (ödenen + birim indirim)
+  //   H2 (indirimli): commissionAmount ≈ rate% × settlement.credit (ödenen)
+  const TOL_BASIS = 0.06;
+  const basisVerdict = { list: 0, discounted: 0, both: 0, neither: 0 };
+  const basisExamples = [];
+  for (const s of sales) {
+    const hit = orderLineIndex.get(`${s.orderNumber}|${s.barcode}`);
+    if (!hit) continue;
+    const line = hit.line;
+    const qty = line.quantity || 1;
+    const unitDiscount = (line.lineTotalDiscount || 0) / qty;
+    if (unitDiscount <= 0.01) continue; // sadece indirimli satırlar kanıt sayılır
+    const rate = (s.commissionRate || 0) / 100;
+    if (!rate || !s.credit) continue;
+
+    const paid = s.credit;                    // settlement satırının ödenen tutarı
+    const list = paid + unitDiscount;         // indirim öncesi taban
+    const cList = rate * list;
+    const cPaid = rate * paid;
+    const a = s.commissionAmount || 0;
+
+    const okList = Math.abs(a - cList) <= Math.max(TOL_BASIS, a * 0.01);
+    const okPaid = Math.abs(a - cPaid) <= Math.max(TOL_BASIS, a * 0.01);
+    let v;
+    if (okList && okPaid) v = 'both';
+    else if (okList) v = 'list';
+    else if (okPaid) v = 'discounted';
+    else v = 'neither';
+    basisVerdict[v]++;
+
+    if (basisExamples.length < 15) {
+      basisExamples.push({
+        orderNumber: s.orderNumber, barcode: s.barcode,
+        rate: s.commissionRate, paid: paid.toFixed(2), unitDiscount: unitDiscount.toFixed(2),
+        list: list.toFixed(2), cList: cList.toFixed(2), cPaid: cPaid.toFixed(2),
+        actual: a.toFixed(2), verdict: v
+      });
+    }
+  }
+
   // ── HTML ────────────────────────────────────────────────────────────
   const rateRows = [...rateDist.entries()].sort((a, b) => a[0] - b[0]).map(([rate, v]) =>
     `<tr><td>%${rate}</td><td class="num">${v.count}</td><td class="num">${fmtTL(v.totalCommission)} ₺</td></tr>`).join('');
@@ -219,6 +261,23 @@ ${verdict.noOrderMatch} settlement satırı sipariş penceresinde bulunamadı, $
 <h2>5 · transactionType özeti (tüm settlement satırları)</h2>
 <table><thead><tr><th>Tip</th><th>Satır</th><th>Alacak (credit)</th><th>Borç (debt)</th><th>Net</th></tr></thead>
 <tbody>${typeRows}</tbody></table>
+
+<h2>6 · Komisyon tabanı: indirim ÖNCESİ mi SONRASI fiyat?</h2>
+<p class="note">Yalnızca indirimli sipariş satırları (lineTotalDiscount &gt; 0) kanıt olarak kullanıldı.
+H1: komisyon = oran × liste fiyatı · H2: komisyon = oran × ödenen (indirimli) fiyat.
+Toplam ${basisVerdict.list + basisVerdict.discounted + basisVerdict.both + basisVerdict.neither} indirimli eşleşme test edildi.</p>
+<div>
+  <span class="verdict"><b>${basisVerdict.discounted}</b>indirimli (ödenen) fiyattan<br><small>a ≈ oran × credit</small></span>
+  <span class="verdict"><b>${basisVerdict.list}</b>liste fiyatından<br><small>a ≈ oran × (credit + indirim)</small></span>
+  <span class="verdict"><b>${basisVerdict.both}</b>ikisi de tutuyor<br><small>ayrıştırıcı değil</small></span>
+  <span class="verdict"><b>${basisVerdict.neither}</b>hiçbiri<br><small>ayrıca incelenmeli</small></span>
+</div>
+<table><thead><tr><th>Sipariş</th><th>Barkod</th><th>Oran</th><th>Ödenen</th><th>Birim indirim</th><th>Liste</th><th>H1: oran×liste</th><th>H2: oran×ödenen</th><th>Gerçek komisyon</th><th>Sonuç</th></tr></thead>
+<tbody>${basisExamples.map(e =>
+  `<tr><td>${esc(e.orderNumber)}</td><td><code>${esc(e.barcode)}</code></td><td class="num">%${e.rate}</td>
+   <td class="num">${e.paid}</td><td class="num">${e.unitDiscount}</td><td class="num">${e.list}</td>
+   <td class="num">${e.cList}</td><td class="num">${e.cPaid}</td><td class="num"><b>${e.actual}</b></td>
+   <td><b>${e.verdict}</b></td></tr>`).join('')}</tbody></table>
 </body></html>`;
 }
 
